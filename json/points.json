@@ -1,0 +1,34 @@
+[
+  {
+    "name": "成缆机_计米器",
+    "description": "",
+    "register_type": "holding_register",
+    "register_address": 13,
+    "data_type": "uint32",
+    "byte_order": "big_endian",
+    "scale": 0.1,
+    "offset": 0.0,
+    "unit": "",
+    "alarm_high": null,
+    "alarm_low": null,
+    "read_count": 0,
+    "enabled": true,
+    "slave_id": 9
+  },
+  {
+    "name": "电表",
+    "description": "",
+    "register_type": "holding_register",
+    "register_address": 8192,
+    "data_type": "float32",
+    "byte_order": "big_endian",
+    "scale": 1.0,
+    "offset": 0.0,
+    "unit": "",
+    "alarm_high": null,
+    "alarm_low": null,
+    "read_count": 0,
+    "enabled": true,
+    "slave_id": 4
+  }
+]

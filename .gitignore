@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 运行时数据（含数据库、日志、本地设备配置，请勿上传）
+data/
+!data/.gitkeep
+
+# 日志与导出文件
+*.log
+debug.log
+gateway_logs.txt
+data_export.csv
+*.csv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 系统
+Thumbs.db
+.DS_Store
+
+# 构建产物
+build/
+dist/
+*.spec

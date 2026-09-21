@@ -1,0 +1,10 @@
+pyserial>=3.5
+paho-mqtt>=1.6.1,<2.0.0
+PyQt6>=6.5.0
+matplotlib>=3.7.0
+numpy>=1.24.0
+pycryptodome>=3.18.0
+pyModbusTCP>=0.1.10
+cryptography>=41.0.0
+lupa>=1.14
+jsonschema>=4.17
