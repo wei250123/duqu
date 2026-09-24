@@ -11,6 +11,7 @@ from config.config_manager import config_manager, DeviceConfig, SerialConfig, Et
     ProtocolConfig, CollectConfig, CollectPoint, MqttConfig, DataFilterConfig, DataAggregateConfig
 from device.device_manager import device_manager, DeviceRuntimeStatus
 from core.communication.serial_client import SerialClient
+from core.security.auth import auth_manager
 
 
 def _parse_addr(text: str) -> int:
@@ -33,6 +34,12 @@ class DevicePage(QWidget):
         self._refresh_timer.start(2000)
         self._current_device_id = None
         self._refresh_device_list()
+
+    def _require_permission(self, permission: str) -> bool:
+        if auth_manager.has_permission(permission):
+            return True
+        QMessageBox.warning(self, "无权限", "当前用户没有执行此操作的权限")
+        return False
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
@@ -435,6 +442,8 @@ class DevicePage(QWidget):
             self._points_table.cellDoubleClicked.connect(self._toggle_point_enabled)
 
     def _add_device(self):
+        if not self._require_permission("modify_config"):
+            return
         existing_ids = list(config_manager.devices.keys())
         max_num = 0
         for did in existing_ids:
@@ -454,6 +463,8 @@ class DevicePage(QWidget):
             QMessageBox.warning(self, "错误", f"设备 {device_id} 添加失败，可能已存在")
 
     def _remove_device(self):
+        if not self._require_permission("modify_config"):
+            return
         if not self._current_device_id:
             QMessageBox.warning(self, "提示", "请先选择要删除的设备")
             return
@@ -491,6 +502,8 @@ class DevicePage(QWidget):
             QMessageBox.warning(self, "失败", "全量上传MQTT失败，请检查MQTT连接")
 
     def _save_config(self):
+        if not self._require_permission("modify_config"):
+            return
         if not self._current_device_id:
             QMessageBox.warning(self, "提示", "请先选择一个设备")
             return
@@ -592,6 +605,8 @@ class DevicePage(QWidget):
             QMessageBox.warning(self, "失败", "设备配置保存失败")
 
     def _add_point(self):
+        if not self._require_permission("modify_config"):
+            return
         row = self._points_table.rowCount()
         self._points_table.insertRow(row)
         self._points_table.setItem(row, 0, QTableWidgetItem(f"point_{row + 1}"))
@@ -627,6 +642,9 @@ class DevicePage(QWidget):
         self._points_table.setItem(row, 13, QTableWidgetItem(""))
 
     def _toggle_point_enabled(self, row, col):
+        if not self._require_permission("modify_config"):
+            self._load_device_config(self._current_device_id)
+            return
         if col != 12:
             return
         item = self._points_table.item(row, col)
@@ -634,11 +652,15 @@ class DevicePage(QWidget):
             item.setText("否" if item.text() == "是" else "是")
 
     def _delete_point(self):
+        if not self._require_permission("modify_config"):
+            return
         current_row = self._points_table.currentRow()
         if current_row >= 0:
             self._points_table.removeRow(current_row)
 
     def _import_points(self):
+        if not self._require_permission("modify_config"):
+            return
         filepath, _ = QFileDialog.getOpenFileName(self, "导入采集点", "", "JSON文件 (*.json)")
         if filepath:
             try:
@@ -752,6 +774,8 @@ class DevicePage(QWidget):
             QMessageBox.information(self, "成功", f"已导出 {len(points)} 个采集点")
 
     def _import_config(self):
+        if not self._require_permission("modify_config"):
+            return
         filepath, _ = QFileDialog.getOpenFileName(self, "导入设备配置", "", "JSON文件 (*.json)")
         if filepath:
             try:

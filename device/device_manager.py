@@ -15,6 +15,7 @@ from core.processor.data_aggregator import DataAggregator
 from core.processor.data_transformer import DataTransformer, AlarmChecker
 from core.storage.database import db
 from core.storage.cache_manager import cache_manager
+from core.security.auth import auth_manager
 from utils.logger import log_manager
 
 
@@ -71,17 +72,27 @@ class DeviceManager:
         log_manager.info("设备管理", "所有设备已停止")
 
     def start_device(self, device_id: str) -> bool:
+        if (not auth_manager.is_logged_in() or
+                not auth_manager.has_permission('control_device')):
+            log_manager.warn("安全", f"用户无权启动设备: {device_id}")
+            return False
         device_config = config_manager.get_device(device_id)
         if not device_config or not device_config.enabled:
             self._set_runtime_status(device_id, DeviceRuntimeStatus.DISABLED)
             return False
         return self._start_device(device_id)
 
-    def stop_device(self, device_id: str):
+    def stop_device(self, device_id: str, enforce_permission: bool = True):
+        if (enforce_permission and
+                (not auth_manager.is_logged_in() or
+                 not auth_manager.has_permission('control_device'))):
+            log_manager.warn("安全", f"用户无权停止设备: {device_id}")
+            return False
         collector_manager.stop_device(device_id)
         mqtt_manager.disconnect_device(device_id)
         self._set_runtime_status(device_id, DeviceRuntimeStatus.OFFLINE)
         log_manager.info(f"设备[{device_id}]", "设备已停止")
+        return True
 
     def _start_device(self, device_id: str) -> bool:
         device_config = config_manager.get_device(device_id)
@@ -112,6 +123,10 @@ class DeviceManager:
         return True
 
     def add_device(self, device_config: DeviceConfig) -> bool:
+        if (not auth_manager.is_logged_in() or
+                not auth_manager.has_permission('modify_config')):
+            log_manager.warn("安全", f"用户无权添加设备: {device_config.device_id}")
+            return False
         if not config_manager.add_device(device_config):
             return False
         self._set_runtime_status(device_config.device_id, DeviceRuntimeStatus.OFFLINE)
@@ -119,6 +134,10 @@ class DeviceManager:
         return True
 
     def remove_device(self, device_id: str) -> bool:
+        if (not auth_manager.is_logged_in() or
+                not auth_manager.has_permission('modify_config')):
+            log_manager.warn("安全", f"用户无权删除设备: {device_id}")
+            return False
         self.stop_device(device_id)
         collector_manager.remove_device(device_id)
         mqtt_manager.remove_client(device_id)
@@ -131,6 +150,10 @@ class DeviceManager:
         return True
 
     def update_device(self, device_config: DeviceConfig) -> bool:
+        if (not auth_manager.is_logged_in() or
+                not auth_manager.has_permission('modify_config')):
+            log_manager.warn("安全", f"用户无权修改设备: {device_config.device_id}")
+            return False
         was_running = self._runtime_status.get(device_config.device_id) == DeviceRuntimeStatus.COLLECTING
         self.stop_device(device_config.device_id)
         if not config_manager.update_device(device_config):
@@ -164,12 +187,20 @@ class DeviceManager:
         return collector_manager.get_device_latest_values(device_id)
 
     def trigger_device_once(self, device_id: str) -> List[CollectResult]:
+        if (not auth_manager.is_logged_in() or
+                not auth_manager.has_permission('control_device')):
+            log_manager.warn("安全", f"用户无权触发设备采集: {device_id}")
+            return []
         collector = collector_manager._collectors.get(device_id)
         if collector:
             return collector.trigger_once()
         return []
 
     def force_upload_all_points(self, device_id: str) -> bool:
+        if (not auth_manager.is_logged_in() or
+                not auth_manager.has_permission('control_device')):
+            log_manager.warn("安全", f"用户无权强制上传设备数据: {device_id}")
+            return False
         device_config = config_manager.get_device(device_id)
         if not device_config:
             return False

@@ -288,6 +288,8 @@ class AppConfig:
     batch_publish: bool = True
     enable_filter: bool = False
     startup_password: str = ""
+    startup_password_hash: str = ""
+    startup_password_salt: str = ""
     min_to_tray: bool = False
     auto_start_collect: bool = False
     max_upload_rate: int = 0

@@ -89,19 +89,20 @@ class MainWindow(QMainWindow):
             }
         """)
         nav_items = [
-            ("  设备管理", 0),
-            ("  可视化大屏", 1),
-            ("  数据可视化", 2),
-            ("  实时监控", 3),
-            ("  数据查询", 4),
-            ("  日志调试", 5),
-            ("  MQTT调试", 6),
-            ("  系统设置", 7),
+            ("  设备管理", 0, "view_data"),
+            ("  可视化大屏", 1, "view_data"),
+            ("  数据可视化", 2, "view_data"),
+            ("  实时监控", 3, "view_data"),
+            ("  数据查询", 4, "view_data"),
+            ("  日志调试", 5, "debug_tools"),
+            ("  MQTT调试", 6, "debug_tools"),
+            ("  系统设置", 7, "system_settings"),
         ]
-        for text, idx in nav_items:
+        for text, idx, permission in nav_items:
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, idx)
             item.setSizeHint(QSize(0, 45))
+            item.setHidden(not auth_manager.has_permission(permission))
             self._nav_list.addItem(item)
 
         self._nav_list.setCurrentRow(0)

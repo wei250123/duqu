@@ -1,29 +1,51 @@
 import os
 import base64
 import hashlib
+import tempfile
 from typing import Optional, Dict
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 from Crypto.Random import get_random_bytes
+from config.config_manager import CONFIG_DIR
 
 
 class AESEncryptor:
-    def __init__(self, key: Optional[bytes] = None, key_size: int = 16):
+    _MAGIC = b"IIOT-GCM1"
+    _NONCE_SIZE = 12
+    _TAG_SIZE = 16
+
+    def __init__(self, key: Optional[bytes] = None, key_size: int = 32):
         if key is None:
             key = get_random_bytes(key_size)
         elif len(key) not in (16, 24, 32):
             key = hashlib.sha256(key).digest()[:key_size]
-        self._key = key[:key_size]
+        self._key = key
 
     def encrypt(self, data: bytes) -> bytes:
-        iv = get_random_bytes(16)
-        cipher = AES.new(self._key, AES.MODE_CBC, iv)
-        encrypted = cipher.encrypt(pad(data, AES.block_size))
-        return iv + encrypted
+        nonce = get_random_bytes(self._NONCE_SIZE)
+        cipher = AES.new(self._key, AES.MODE_GCM, nonce=nonce)
+        encrypted, tag = cipher.encrypt_and_digest(data)
+        return self._MAGIC + nonce + tag + encrypted
 
     def decrypt(self, data: bytes) -> bytes:
+        if data.startswith(self._MAGIC):
+            header_size = len(self._MAGIC)
+            nonce_start = header_size
+            tag_start = nonce_start + self._NONCE_SIZE
+            payload_start = tag_start + self._TAG_SIZE
+            nonce = data[nonce_start:tag_start]
+            tag = data[tag_start:payload_start]
+            encrypted = data[payload_start:]
+            if len(nonce) != self._NONCE_SIZE or len(tag) != self._TAG_SIZE:
+                raise ValueError("加密数据格式无效")
+            cipher = AES.new(self._key, AES.MODE_GCM, nonce=nonce)
+            return cipher.decrypt_and_verify(encrypted, tag)
+
+        # Backward-compatible read path for data written by v1.0 CBC mode.
         iv = data[:16]
         encrypted = data[16:]
+        if len(iv) != 16 or not encrypted or len(encrypted) % AES.block_size:
+            raise ValueError("加密数据格式无效")
         cipher = AES.new(self._key, AES.MODE_CBC, iv)
         return unpad(cipher.decrypt(encrypted), AES.block_size)
 
@@ -67,14 +89,56 @@ class DataEncryptor:
         if self._initialized:
             return
         self._initialized = True
-        default_key = b'IIoTGatewayKey12'
-        self._aes = AESEncryptor(key=default_key)
+        self._aes: Optional[AESEncryptor] = None
         self._enabled = False
 
     def set_key(self, key: bytes):
         self._aes = AESEncryptor(key=key)
 
+    def _load_key(self) -> bytes:
+        configured = os.getenv("IIOT_GATEWAY_ENCRYPTION_KEY", "").strip()
+        if configured:
+            try:
+                decoded = base64.urlsafe_b64decode(configured.encode("ascii"))
+                if len(decoded) in (16, 24, 32):
+                    return decoded
+            except (ValueError, UnicodeEncodeError):
+                pass
+            return configured.encode("utf-8")
+
+        key_path = os.path.join(CONFIG_DIR, "encryption.key")
+        if os.path.exists(key_path):
+            with open(key_path, "rb") as handle:
+                key = handle.read()
+            if len(key) not in (16, 24, 32):
+                raise ValueError("本地加密密钥长度无效")
+            return key
+
+        key = get_random_bytes(32)
+        key_dir = os.path.dirname(key_path)
+        os.makedirs(key_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix="encryption.", suffix=".tmp", dir=key_dir)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(key)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, key_path)
+            try:
+                os.chmod(key_path, 0o600)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+        return key
+
+    def _ensure_key(self):
+        if self._aes is None:
+            self._aes = AESEncryptor(key=self._load_key())
+
     def enable(self):
+        self._ensure_key()
         self._enabled = True
 
     def disable(self):
@@ -92,6 +156,7 @@ class DataEncryptor:
         if not data.get('encrypted'):
             return data
         import json
+        self._ensure_key()
         decrypted = self._aes.decrypt_string(data['data'])
         return json.loads(decrypted)
 
@@ -102,6 +167,7 @@ class DataEncryptor:
 
     def decrypt(self, encoded: str) -> str:
         if self._enabled:
+            self._ensure_key()
             return self._aes.decrypt_string(encoded)
         return encoded
 

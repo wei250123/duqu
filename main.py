@@ -37,6 +37,23 @@ def cleanup():
     log_manager.info("系统", "程序已退出")
 
 
+def authenticate_user() -> bool:
+    for _ in range(3):
+        username, ok = QInputDialog.getText(None, "用户登录", "用户名:")
+        if not ok:
+            return False
+        password, ok = QInputDialog.getText(
+            None, "用户登录", "密码:", QLineEdit.EchoMode.Password
+        )
+        if not ok:
+            return False
+        success, message = auth_manager.login(username.strip(), password)
+        if success:
+            return True
+        QMessageBox.warning(None, "登录失败", message)
+    return False
+
+
 def main():
     setup_directories()
     log_manager.info("系统", "=" * 60)
@@ -50,12 +67,16 @@ def main():
 
     watchdog.set_restart_callback(lambda: cleanup())
     app_config = config_manager.app_config
-    if app_config.startup_password:
+    if not authenticate_user():
+        log_manager.error("安全", "用户登录失败或取消")
+        sys.exit(1)
+
+    if auth_manager.has_startup_password():
         password, ok = QInputDialog.getText(
             None, "启动验证", "请输入启动密码:",
             QLineEdit.EchoMode.Password
         )
-        if not ok or password != app_config.startup_password:
+        if not ok or not auth_manager.verify_startup_password(password):
             log_manager.error("系统", "启动密码验证失败")
             sys.exit(1)
         log_manager.info("系统", "启动密码验证成功")

@@ -185,7 +185,15 @@ class SettingsPage(QWidget):
         self._spin_watchdog_timeout.setValue(int(watchdog._heartbeat_timeout))
         self._check_encrypt.setChecked(data_encryptor._enabled)
 
+    def _require_admin(self) -> bool:
+        if auth_manager.is_logged_in() and auth_manager.has_permission('system_settings'):
+            return True
+        QMessageBox.warning(self, "无权限", "只有管理员可以修改系统设置")
+        return False
+
     def _save_settings(self):
+        if not self._require_admin():
+            return
         cfg = config_manager.app_config
         cfg.language = self._combo_lang.currentText()
         cfg.theme = self._combo_theme.currentText()
@@ -204,9 +212,12 @@ class SettingsPage(QWidget):
             if pwd != self._edit_startup_pwd_confirm.text():
                 QMessageBox.warning(self, "错误", "两次输入的密码不一致")
                 return
-            cfg.startup_password = pwd
+            success, message = auth_manager.set_startup_password(pwd)
+            if not success:
+                QMessageBox.warning(self, "错误", message)
+                return
         elif self._edit_startup_pwd.text() == "":
-            cfg.startup_password = ""
+            auth_manager.set_startup_password("")
 
         if self._check_encrypt.isChecked():
             data_encryptor.enable()
@@ -218,6 +229,8 @@ class SettingsPage(QWidget):
         QMessageBox.information(self, "成功", "设置已保存")
 
     def _restore_defaults(self):
+        if not self._require_admin():
+            return
         reply = QMessageBox.question(self, "确认恢复", "确定要恢复所有默认设置吗？",
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
@@ -227,12 +240,16 @@ class SettingsPage(QWidget):
             QMessageBox.information(self, "成功", "已恢复默认设置")
 
     def _export_settings(self):
+        if not self._require_admin():
+            return
         filepath, _ = QFileDialog.getSaveFileName(self, "导出配置", "config_backup.json", "JSON文件 (*.json)")
         if filepath:
             config_manager.export_config(filepath)
             QMessageBox.information(self, "成功", f"配置已导出到 {filepath}")
 
     def _import_settings(self):
+        if not self._require_admin():
+            return
         filepath, _ = QFileDialog.getOpenFileName(self, "导入配置", "", "JSON文件 (*.json)")
         if filepath:
             try:

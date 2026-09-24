@@ -80,6 +80,15 @@ class MqttClient:
     def reset_stats(self):
         self._upload_stats = {"success": 0, "fail": 0, "total": 0}
 
+    def _build_tls_context(self) -> ssl.SSLContext:
+        """Build a verifying TLS context; never silently disable certificate checks."""
+        context = ssl.create_default_context()
+        if self._config.ca_cert_path and self._config.ca_cert_path.strip():
+            context.load_verify_locations(self._config.ca_cert_path)
+        if self._config.cert_path and self._config.key_path:
+            context.load_cert_chain(self._config.cert_path, self._config.key_path)
+        return context
+
     def connect(self, wait_timeout: float = 5.0) -> bool:
         if self._state == MqttState.CONNECTED:
             return True
@@ -96,15 +105,7 @@ class MqttClient:
             if self._config.username:
                 self._client.username_pw_set(self._config.username, self._config.password)
             if self._config.use_tls:
-                context = ssl.create_default_context()
-                if self._config.ca_cert_path and self._config.ca_cert_path.strip():
-                    context.load_verify_locations(self._config.ca_cert_path)
-                else:
-                    context.check_hostname = False
-                    context.verify_mode = ssl.CERT_NONE
-                if self._config.cert_path and self._config.key_path:
-                    context.load_cert_chain(self._config.cert_path, self._config.key_path)
-                self._client.tls_set_context(context)
+                self._client.tls_set_context(self._build_tls_context())
             if self._config.will_topic:
                 self._client.will_set(
                     topic=self._config.will_topic,

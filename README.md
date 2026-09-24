@@ -9,7 +9,7 @@
 - **MQTT 上传**：批量发布、上传速率限制、备份服务器、数据过滤
 - **数据处理**：Lua 脚本插件扩展（lupa）、数据缓存与断网续传
 - **可视化**：matplotlib 实时曲线、历史数据导出（CSV）
-- **安全**：角色权限（admin / operator / viewer）、密码哈希（pycryptodome / cryptography）、可选启动密码
+- **安全**：启动登录、角色权限（admin / operator / viewer）、持久化账户、密码哈希、AES-GCM 数据加密、可选启动密码
 - **运维**：看门狗、分级日志、配置热加载
 
 ## 环境要求
@@ -27,6 +27,12 @@ python -m venv .venv
 # 安装依赖
 pip install -r requirements.txt
 
+# 开发/测试环境
+pip install -r requirements-dev.txt
+
+# 运行测试
+python -m pytest -q
+
 # 启动
 python main.py
 ```
@@ -40,6 +46,12 @@ python main.py
 | 观察者 | viewer | viewer123 |
 
 > 上线前请务必修改默认密码。
+
+程序启动时必须登录。账户保存在 `data/config/users.json`，新增用户和密码修改会原子写入；普通操作员不能修改设备配置，观察者不能执行设备控制或调试操作。
+
+启动密码会以哈希形式保存。旧版本明文启动密码只会在成功验证后自动迁移，之后不会继续写回明文。
+
+启用数据加密后，程序使用 AES-GCM。默认会在 `data/config/encryption.key` 生成随机密钥；生产环境可通过 `IIOT_GATEWAY_ENCRYPTION_KEY` 注入 Base64 编码的 16、24 或 32 字节密钥。密钥文件和运行时数据不要提交到 Git。
 
 ## 项目结构
 
