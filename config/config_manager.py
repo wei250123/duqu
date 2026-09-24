@@ -1,8 +1,8 @@
 import os
 import sys
 import json
-from typing import Any, Dict, List, Optional
-from dataclasses import dataclass, field, asdict
+from typing import Any, Dict, List, Optional, Union, get_args, get_origin
+from dataclasses import MISSING, dataclass, field, fields
 
 
 def get_app_dir():
@@ -310,27 +310,55 @@ def _dataclass_to_dict(obj) -> dict:
         return obj
 
 
+def _convert_dataclass_value(value: Any, field_type: Any) -> Any:
+    """Convert nested dataclasses while leaving scalar and untyped values unchanged."""
+    if value is None:
+        return None
+
+    origin = get_origin(field_type)
+    args = get_args(field_type)
+
+    if origin in (list, List):
+        item_type = args[0] if args else Any
+        return [_convert_dataclass_value(item, item_type) for item in value]
+
+    if origin in (dict, Dict):
+        value_type = args[1] if len(args) > 1 else Any
+        return {
+            key: _convert_dataclass_value(item, value_type)
+            for key, item in value.items()
+        }
+
+    if origin is Union:
+        for option in args:
+            if option is type(None):
+                continue
+            converted = _convert_dataclass_value(value, option)
+            if converted is not value or hasattr(option, '__dataclass_fields__'):
+                return converted
+        return value
+
+    if hasattr(field_type, '__dataclass_fields__') and isinstance(value, dict):
+        return _dict_to_dataclass(value, field_type)
+    return value
+
+
 def _dict_to_dataclass(data: dict, dataclass_type):
     if not hasattr(dataclass_type, '__dataclass_fields__'):
         return data
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected object for {dataclass_type.__name__}, got {type(data).__name__}")
+
     kwargs = {}
-    for field_name, field_def in dataclass_type.__dataclass_fields__.items():
+    for field_def in fields(dataclass_type):
+        field_name = field_def.name
         if field_name in data:
-            value = data[field_name]
-            field_type = field_def.type
-            origin = getattr(field_type, '__origin__', None)
-            if origin is list:
-                args = getattr(field_type, '__args__', ())
-                if args and hasattr(args[0], '__dataclass_fields__'):
-                    kwargs[field_name] = [_dict_to_dataclass(item, args[0]) for item in value]
-                else:
-                    kwargs[field_name] = value
-            elif hasattr(field_type, '__dataclass_fields__'):
-                kwargs[field_name] = _dict_to_dataclass(value, field_type) if isinstance(value, dict) else value
-            else:
-                kwargs[field_name] = value
-        else:
+            kwargs[field_name] = _convert_dataclass_value(data[field_name], field_def.type)
+        elif field_def.default is not MISSING:
             kwargs[field_name] = field_def.default
+        elif field_def.default_factory is not MISSING:
+            kwargs[field_name] = field_def.default_factory()
+
     return dataclass_type(**kwargs)
 
 

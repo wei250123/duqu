@@ -1,8 +1,9 @@
 import json
-import mqtt
 import time
 import datetime
 import os
+
+import paho.mqtt.client as mqtt
 
 Config_Error={
     "username_error": "用户名错误",
@@ -52,8 +53,14 @@ class mqtt_client:
         time.sleep(1)
         print(Config_Error["connect_success"])
 
-mqtt_client=mqtt_client("test","192.168.1.100",1883,"test","test")
-mqtt_client.connect()
-msq="test"
-mqtt_client.publish(msq)
+def main():
+    client = mqtt_client("test", "192.168.1.100", 1883, "test", "test")
+    try:
+        client.publish("test")
+    finally:
+        client.disconnect()
+
+
+if __name__ == "__main__":
+    main()
 
