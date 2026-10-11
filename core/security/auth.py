@@ -3,6 +3,7 @@ import time
 import json
 import hmac
 import tempfile
+import threading
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 
@@ -12,7 +13,11 @@ from utils.logger import log_manager
 
 
 USER_FILE = os.path.join(CONFIG_DIR, "users.json")
+AUDIT_FILE = os.path.join(CONFIG_DIR, "security_audit.jsonl")
 MIN_PASSWORD_LENGTH = 8
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_SECONDS = 300
+SESSION_TIMEOUT_SECONDS = 30 * 60
 
 
 @dataclass
@@ -24,6 +29,8 @@ class User:
     enabled: bool = True
     created_at: float = field(default_factory=time.time)
     last_login: float = 0.0
+    failed_attempts: int = 0
+    locked_until: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -33,7 +40,9 @@ class User:
             'role': self.role,
             'enabled': self.enabled,
             'created_at': self.created_at,
-            'last_login': self.last_login
+            'last_login': self.last_login,
+            'failed_attempts': self.failed_attempts,
+            'locked_until': self.locked_until,
         }
 
     @classmethod
@@ -45,7 +54,9 @@ class User:
             role=data.get('role', 'operator'),
             enabled=data.get('enabled', True),
             created_at=data.get('created_at', time.time()),
-            last_login=data.get('last_login', 0.0)
+            last_login=data.get('last_login', 0.0),
+            failed_attempts=int(data.get('failed_attempts', 0)),
+            locked_until=float(data.get('locked_until', 0.0)),
         )
 
 
@@ -93,7 +104,9 @@ class AuthManager:
         self._users: Dict[str, User] = {}
         self._current_user: Optional[User] = None
         self._logged_in = False
+        self._last_activity = 0.0
         self._operation_logs: List[dict] = []
+        self._audit_lock = threading.Lock()
         self._load_users()
 
     def _default_users(self) -> Dict[str, User]:
@@ -174,14 +187,29 @@ class AuthManager:
         if not user.enabled:
             self._log_operation(username, "login", False, "账户已禁用")
             return False, "账户已被禁用，请联系管理员"
+        now = time.time()
+        if user.locked_until > now:
+            self._log_operation(username, "login", False, "账户锁定")
+            return False, "登录失败次数过多，账户已暂时锁定，请稍后重试"
         if verify_password(password, user.password_hash, user.salt):
             self._current_user = user
             self._logged_in = True
-            user.last_login = time.time()
+            self._last_activity = now
+            user.last_login = now
+            user.failed_attempts = 0
+            user.locked_until = 0.0
             self._save_users()
             self._log_operation(username, "login", True, f"登录成功，角色: {user.role}")
             log_manager.info("安全", f"用户 {username} 登录成功")
             return True, "登录成功"
+        user.failed_attempts += 1
+        if user.failed_attempts >= MAX_FAILED_ATTEMPTS:
+            user.locked_until = now + LOCKOUT_SECONDS
+            user.failed_attempts = 0
+            self._save_users()
+            self._log_operation(username, "login", False, "密码错误次数过多，账户已锁定")
+            return False, "登录失败次数过多，账户已暂时锁定，请稍后重试"
+        self._save_users()
         self._log_operation(username, "login", False, "密码错误")
         return False, "用户名或密码错误"
 
@@ -191,9 +219,20 @@ class AuthManager:
             log_manager.info("安全", f"用户 {self._current_user.username} 登出")
         self._current_user = None
         self._logged_in = False
+        self._last_activity = 0.0
 
     def is_logged_in(self) -> bool:
-        return self._logged_in and self._current_user is not None
+        if not self._logged_in or self._current_user is None:
+            return False
+        if self._last_activity and time.time() - self._last_activity > SESSION_TIMEOUT_SECONDS:
+            username = self._current_user.username
+            self._log_operation(username, "session_timeout", True, "会话已超时")
+            self._current_user = None
+            self._logged_in = False
+            self._last_activity = 0.0
+            return False
+        self._last_activity = time.time()
+        return True
 
     def get_current_user(self) -> Optional[User]:
         return self._current_user
@@ -202,7 +241,7 @@ class AuthManager:
         return self._current_user.role if self._current_user else ""
 
     def has_permission(self, permission: str) -> bool:
-        if not self._current_user:
+        if not self.is_logged_in():
             return False
         return Role.has_permission(self._current_user.role, permission)
 
@@ -268,6 +307,14 @@ class AuthManager:
         self._operation_logs.append(entry)
         if len(self._operation_logs) > 10000:
             self._operation_logs = self._operation_logs[-5000:]
+        try:
+            audit_dir = os.path.dirname(AUDIT_FILE) or CONFIG_DIR
+            os.makedirs(audit_dir, exist_ok=True)
+            with self._audit_lock, open(AUDIT_FILE, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                handle.flush()
+        except OSError as exc:
+            log_manager.warn("安全", f"审计日志写入失败: {exc}")
 
     def get_operation_logs(self, limit: int = 500) -> List[dict]:
         return self._operation_logs[-limit:]

@@ -432,6 +432,7 @@ class ConfigManager:
 
     def save_app_config(self):
         data = _dataclass_to_dict(self._app_config)
+        self._protect_config_secrets(data)
         with open(self._config_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -444,6 +445,9 @@ class ConfigManager:
             'app_config': _dataclass_to_dict(self._app_config),
             'devices': {k: _dataclass_to_dict(v) for k, v in self._devices.items()}
         }
+        # Configuration exports are commonly shared for support.  Never export
+        # MQTT passwords in recoverable form by default.
+        self._protect_config_secrets(data, redact=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -453,9 +457,20 @@ class ConfigManager:
         if 'app_config' in data:
             self._app_config = _dict_to_dataclass(data['app_config'], AppConfig)
         if 'devices' in data:
+            existing_devices = self._devices
             self._devices = {}
             for device_id, device_data in data['devices'].items():
+                existing = existing_devices.get(device_id)
+                if isinstance(device_data, dict) and existing:
+                    # Support exports intentionally redact secrets.  Keep the
+                    # currently configured credential when such an export is
+                    # imported, instead of replacing it with a placeholder.
+                    if device_data.get('mqtt', {}).get('password') == '<redacted>':
+                        device_data.setdefault('mqtt', {})['password'] = existing.mqtt.password
+                    if device_data.get('backup_mqtt', {}).get('password') == '<redacted>':
+                        device_data.setdefault('backup_mqtt', {})['password'] = existing.backup_mqtt.password
                 self._devices[device_id] = _dict_to_dataclass(device_data, DeviceConfig)
+        self._decrypt_loaded_secrets()
         self.save_all()
 
     def restore_defaults(self):
@@ -468,6 +483,7 @@ class ConfigManager:
         if not device:
             return False
         data = _dataclass_to_dict(device)
+        self._protect_config_secrets(data, redact=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return True
@@ -480,8 +496,61 @@ class ConfigManager:
 
     def _save_devices(self):
         data = {k: _dataclass_to_dict(v) for k, v in self._devices.items()}
+        self._protect_config_secrets(data)
         with open(self._devices_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _protect_config_secrets(data: dict, redact: bool = False):
+        """Protect MQTT passwords in persisted configuration dictionaries."""
+        try:
+            from core.security.encryption import data_encryptor
+        except ImportError:
+            # The encryption module imports this module during startup.  The
+            # post-initialization hook below retries once both modules exist.
+            return
+
+        def protect(container: dict):
+            if not isinstance(container, dict) or 'password' not in container:
+                return
+            password = container.get('password') or ''
+            if redact:
+                container['password'] = '<redacted>' if password else ''
+            elif password and password != '<redacted>':
+                container['password'] = data_encryptor.encrypt_secret(password)
+
+        app_section = data.get('app_config') if isinstance(data.get('app_config'), dict) else data
+        if isinstance(app_section, dict):
+            for backup in app_section.get('backup_servers', []) or []:
+                protect(backup)
+        if 'devices' in data and isinstance(data['devices'], dict):
+            device_values = data['devices'].values()
+        elif 'app_config' not in data and any(
+                isinstance(value, dict) and ('mqtt' in value or 'backup_mqtt' in value)
+                for value in data.values()):
+            # ``_save_devices`` writes the device mapping directly without a
+            # top-level ``devices`` wrapper.
+            device_values = data.values()
+        else:
+            device_values = [data]
+        for device in device_values:
+            if not isinstance(device, dict):
+                continue
+            protect(device.get('mqtt', {}))
+            protect(device.get('backup_mqtt', {}))
+
+    def _decrypt_loaded_secrets(self):
+        """Decode encrypted passwords after configuration objects are loaded."""
+        try:
+            from core.security.encryption import data_encryptor
+        except ImportError:
+            return
+
+        for backup in self._app_config.backup_servers:
+            backup.password = data_encryptor.decrypt_secret(backup.password)
+        for device in self._devices.values():
+            device.mqtt.password = data_encryptor.decrypt_secret(device.mqtt.password)
+            device.backup_mqtt.password = data_encryptor.decrypt_secret(device.backup_mqtt.password)
 
     def _load(self):
         if os.path.exists(self._config_file):
@@ -503,3 +572,7 @@ class ConfigManager:
 
 
 config_manager = ConfigManager()
+
+# Retry once the encryption module has completed importing.  This also handles
+# the reverse import order (``encryption`` -> ``config_manager``).
+config_manager._decrypt_loaded_secrets()

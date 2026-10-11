@@ -6,6 +6,7 @@ from unittest.mock import patch
 from Crypto.Cipher import AES
 
 import core.security.encryption as encryption_module
+from config.config_manager import ConfigManager
 
 
 class EncryptionTests(unittest.TestCase):
@@ -38,6 +39,34 @@ class EncryptionTests(unittest.TestCase):
                     self.assertEqual(os.path.getsize(key_path), AES.block_size * 2)
             finally:
                 encryption_module.DataEncryptor._instance = original_instance
+
+    def test_secret_encryption_has_versioned_marker_and_legacy_values_survive(self):
+        encryptor = encryption_module.DataEncryptor()
+        encryptor.set_key(b"secret-store-test-key")
+        encrypted = encryptor.encrypt_secret("mqtt-password")
+
+        self.assertTrue(encrypted.startswith(encryption_module.DataEncryptor._SECRET_PREFIX))
+        self.assertEqual(encryptor.decrypt_secret(encrypted), "mqtt-password")
+        self.assertEqual(encryptor.decrypt_secret("legacy-password"), "legacy-password")
+
+    def test_config_exports_redact_mqtt_passwords(self):
+        payload = {
+            "devices": {
+                "line-1": {
+                    "mqtt": {"password": "mqtt-password"},
+                    "backup_mqtt": {"password": "backup-password"},
+                }
+            },
+            "app_config": {
+                "backup_servers": [{"password": "server-password"}],
+            },
+        }
+
+        ConfigManager._protect_config_secrets(payload, redact=True)
+
+        self.assertEqual(payload["devices"]["line-1"]["mqtt"]["password"], "<redacted>")
+        self.assertEqual(payload["devices"]["line-1"]["backup_mqtt"]["password"], "<redacted>")
+        self.assertEqual(payload["app_config"]["backup_servers"][0]["password"], "<redacted>")
 
 
 if __name__ == "__main__":

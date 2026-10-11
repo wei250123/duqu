@@ -92,6 +92,8 @@ class DataEncryptor:
         self._aes: Optional[AESEncryptor] = None
         self._enabled = False
 
+    _SECRET_PREFIX = "enc:v1:"
+
     def set_key(self, key: bytes):
         self._aes = AESEncryptor(key=key)
 
@@ -171,6 +173,30 @@ class DataEncryptor:
             return self._aes.decrypt_string(encoded)
         return encoded
 
+    def encrypt_secret(self, text: str) -> str:
+        """Encrypt a configuration secret regardless of payload encryption state.
+
+        MQTT credentials are configuration secrets, so they must be protected at
+        rest even when telemetry payload encryption is disabled.  The versioned
+        prefix makes the format explicit and keeps legacy plaintext configs
+        readable during migration.
+        """
+        if not text:
+            return text
+        self._ensure_key()
+        return self._SECRET_PREFIX + self._aes.encrypt_string(text)
+
+    def decrypt_secret(self, value: str) -> str:
+        """Decrypt a stored secret while preserving legacy plaintext values."""
+        if not isinstance(value, str) or not value.startswith(self._SECRET_PREFIX):
+            return value
+        self._ensure_key()
+        try:
+            return self._aes.decrypt_string(value[len(self._SECRET_PREFIX):])
+        except (ValueError, TypeError, UnicodeDecodeError):
+            # Do not expose a corrupted ciphertext as a usable credential.
+            return ""
+
 
 def hash_password(password: str, salt: Optional[str] = None) -> tuple:
     if salt is None:
@@ -185,3 +211,12 @@ def verify_password(password: str, hashed: str, salt: str) -> bool:
 
 
 data_encryptor = DataEncryptor()
+
+# When this module is imported first, config_manager may have loaded encrypted
+# device files while this module was still being initialized.  Decode them now
+# that the singleton is available.
+try:
+    from config.config_manager import config_manager as _config_manager
+    _config_manager._decrypt_loaded_secrets()
+except (ImportError, AttributeError):
+    pass
