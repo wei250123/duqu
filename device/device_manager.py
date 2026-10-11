@@ -108,7 +108,9 @@ class DeviceManager:
         collector.set_data_callback(lambda result: self._on_collect_data(device_id, result))
         collector.set_batch_callback(lambda results: self._on_collect_batch(device_id, results))
         collector.set_status_callback(lambda status: self._on_collector_status(device_id, status))
-        mqtt_conn = mqtt_manager.connect_device(device_id, device_config.mqtt)
+        mqtt_conn = mqtt_manager.connect_device(
+            device_id, device_config.mqtt, device_config.cache
+        )
         if not mqtt_conn:
             log_manager.warn(f"设备[{device_id}]", "MQTT连接失败，数据将缓存本地待补传")
         cache_manager.start_upload_worker()

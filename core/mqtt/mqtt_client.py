@@ -8,7 +8,7 @@ from enum import Enum
 import paho.mqtt.client as mqtt
 import paho.mqtt
 
-from config.config_manager import MqttConfig, BackupMqttConfig
+from config.config_manager import CacheConfig, MqttConfig, BackupMqttConfig
 from utils.logger import log_manager
 from utils.helpers import exponential_backoff
 from core.storage.cache_manager import cache_manager
@@ -157,10 +157,11 @@ class MqttClient:
         log_manager.info(f"MQTT[{self._device_id}]", "已断开连接")
 
     def publish(self, topic: str, payload: str, qos: Optional[int] = None,
-                retain: Optional[bool] = None) -> bool:
+                retain: Optional[bool] = None, cache_on_failure: bool = True) -> bool:
         if not self.is_connected:
             log_manager.warn(f"MQTT[{self._device_id}]", f"发布失败: 未连接, 数据已缓存")
-            cache_manager.cache_data(self._device_id, topic, payload, qos or self._config.qos)
+            if cache_on_failure:
+                cache_manager.cache_data(self._device_id, topic, payload, qos or self._config.qos)
             self._upload_stats["fail"] += 1
             self._upload_stats["total"] += 1
             return False
@@ -182,12 +183,17 @@ class MqttClient:
                 self._upload_stats["fail"] += 1
                 self._upload_stats["total"] += 1
                 log_manager.warn(f"MQTT[{self._device_id}]", f"发布失败: rc={result.rc}, topic={topic}")
+                if cache_on_failure:
+                    cache_manager.cache_data(
+                        self._device_id, topic, payload, qos or self._config.qos
+                    )
                 return False
         except Exception as e:
             self._upload_stats["fail"] += 1
             self._upload_stats["total"] += 1
             log_manager.error(f"MQTT[{self._device_id}]", f"发布异常: {e}, topic={topic}")
-            cache_manager.cache_data(self._device_id, topic, payload, qos or self._config.qos)
+            if cache_on_failure:
+                cache_manager.cache_data(self._device_id, topic, payload, qos or self._config.qos)
             return False
 
     def publish_json(self, topic: str, data: dict, qos: Optional[int] = None,
@@ -337,13 +343,15 @@ class MqttManager:
             self._clients[device_id].disconnect()
             del self._clients[device_id]
             self._backup_configs.pop(device_id, None)
+            cache_manager.unregister_device(device_id)
 
     def set_backup(self, device_id: str, backup_config: BackupMqttConfig):
         self._backup_configs[device_id] = backup_config
 
-    def connect_device(self, device_id: str, config: MqttConfig) -> bool:
+    def connect_device(self, device_id: str, config: MqttConfig,
+                       cache_config: Optional[CacheConfig] = None) -> bool:
         client = self.get_client(device_id, config)
-        cache_manager.register_device(device_id, config.cache if hasattr(config, 'cache') else None,
+        cache_manager.register_device(device_id, cache_config or CacheConfig(),
                                       lambda records: self._cache_upload_callback(device_id, records))
         success = client.connect()
         if not success and config.auto_reconnect:
@@ -362,6 +370,7 @@ class MqttManager:
     def publish(self, device_id: str, topic: str, payload: str, qos: Optional[int] = None) -> bool:
         client = self._clients.get(device_id)
         if not client:
+            cache_manager.cache_data(device_id, topic, payload, qos or 1)
             return False
         success = client.publish(topic, payload, qos)
         if not success:
@@ -372,6 +381,9 @@ class MqttManager:
                      qos: Optional[int] = None) -> bool:
         client = self._clients.get(device_id)
         if not client:
+            cache_manager.cache_data(
+                device_id, topic, json.dumps(data, ensure_ascii=False), qos or 1
+            )
             return False
         success = client.publish_json(topic, data, qos)
         if not success:
@@ -412,7 +424,9 @@ class MqttManager:
             return False
         all_success = True
         for record in records:
-            success = client.publish(record['topic'], record['payload'], record['qos'])
+            success = client.publish(
+                record['topic'], record['payload'], record['qos'], cache_on_failure=False
+            )
             if not success:
                 all_success = False
         return all_success

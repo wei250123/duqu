@@ -15,6 +15,7 @@ from utils.watchdog import watchdog
 from core.security.auth import auth_manager
 from device.device_manager import device_manager
 from core.storage.cache_manager import cache_manager
+from core.storage.database import db
 
 
 def setup_directories():
@@ -28,6 +29,7 @@ def cleanup():
     try:
         device_manager.stop_all()
         cache_manager.stop_upload_worker()
+        db.stop_maintenance()
         widget_instance = getattr(cleanup, '_widget_instance', None)
         if widget_instance:
             import matplotlib.pyplot as plt
@@ -67,6 +69,7 @@ def main():
 
     watchdog.set_restart_callback(lambda: cleanup())
     app_config = config_manager.app_config
+    db.start_maintenance(app_config.data_retention_days)
     if not authenticate_user():
         log_manager.error("安全", "用户登录失败或取消")
         sys.exit(1)

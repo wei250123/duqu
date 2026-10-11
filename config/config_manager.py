@@ -166,6 +166,9 @@ class CacheConfig:
     max_records: int = 100000
     max_hours: int = 72
     full_strategy: str = "overwrite_oldest"
+    max_retries: int = 10
+    retry_backoff_seconds: float = 5.0
+    max_backoff_seconds: float = 300.0
 
 
 class PipelineStage:
@@ -293,6 +296,7 @@ class AppConfig:
     min_to_tray: bool = False
     auto_start_collect: bool = False
     max_upload_rate: int = 0
+    data_retention_days: int = 90
     log: LogConfig = field(default_factory=LogConfig)
     backup_servers: List[BackupMqttConfig] = field(default_factory=list)
 

@@ -8,6 +8,7 @@ from core.security.auth import auth_manager, Role
 from core.security.encryption import data_encryptor
 from utils.logger import log_manager, LogLevel
 from utils.watchdog import watchdog
+from core.storage.database import db
 
 
 class SettingsPage(QWidget):
@@ -115,6 +116,11 @@ class SettingsPage(QWidget):
         self._spin_log_backup.setValue(30)
         layout.addRow("日志保留天数:", self._spin_log_backup)
 
+        self._spin_data_retention = QSpinBox()
+        self._spin_data_retention.setRange(1, 3650)
+        self._spin_data_retention.setSuffix(" 天")
+        layout.addRow("采集数据保留:", self._spin_data_retention)
+
         return widget
 
     def _create_security_tab(self):
@@ -181,6 +187,7 @@ class SettingsPage(QWidget):
         self._combo_log_level.setCurrentText(cfg.log.level)
         self._spin_log_size.setValue(cfg.log.max_file_size_mb)
         self._spin_log_backup.setValue(cfg.log.save_days)
+        self._spin_data_retention.setValue(cfg.data_retention_days)
         self._check_watchdog.setChecked(watchdog._enabled)
         self._spin_watchdog_timeout.setValue(int(watchdog._heartbeat_timeout))
         self._check_encrypt.setChecked(data_encryptor._enabled)
@@ -206,6 +213,7 @@ class SettingsPage(QWidget):
         cfg.log.level = self._combo_log_level.currentText()
         cfg.log.max_file_size_mb = self._spin_log_size.value()
         cfg.log.save_days = self._spin_log_backup.value()
+        cfg.data_retention_days = self._spin_data_retention.value()
 
         pwd = self._edit_startup_pwd.text()
         if pwd:
@@ -225,6 +233,7 @@ class SettingsPage(QWidget):
             data_encryptor.disable()
 
         config_manager.save_app_config()
+        db.start_maintenance(cfg.data_retention_days)
         self.font_size_changed.emit(cfg.font_size)
         QMessageBox.information(self, "成功", "设置已保存")
 

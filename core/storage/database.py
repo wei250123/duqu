@@ -26,15 +26,20 @@ class Database:
         self._db_path = os.path.join(DB_DIR, 'gateway.db')
         self._local = threading.local()
         self._lock = threading.Lock()
+        self._maintenance_thread: Optional[threading.Thread] = None
+        self._maintenance_stop = threading.Event()
         os.makedirs(DB_DIR, exist_ok=True)
         self._init_tables()
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'conn') or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self._db_path, check_same_thread=False)
+            self._local.conn = sqlite3.connect(
+                self._db_path, timeout=30.0, check_same_thread=False
+            )
             self._local.conn.row_factory = sqlite3.Row
             self._local.conn.execute("PRAGMA journal_mode=WAL")
             self._local.conn.execute("PRAGMA synchronous=NORMAL")
+            self._local.conn.execute("PRAGMA busy_timeout=30000")
         return self._local.conn
 
     def _init_tables(self):
@@ -90,12 +95,28 @@ class Database:
                 timestamp REAL NOT NULL,
                 uploaded INTEGER DEFAULT 0,
                 retry_count INTEGER DEFAULT 0,
+                next_retry_at REAL DEFAULT 0,
+                last_error TEXT DEFAULT '',
+                dead_letter INTEGER DEFAULT 0,
                 created_at REAL DEFAULT (strftime('%s', 'now'))
             );
             CREATE INDEX IF NOT EXISTS idx_cache_device ON upload_cache(device_id);
             CREATE INDEX IF NOT EXISTS idx_cache_uploaded ON upload_cache(uploaded);
         """)
+        self._ensure_column(conn, "upload_cache", "next_retry_at", "REAL DEFAULT 0")
+        self._ensure_column(conn, "upload_cache", "last_error", "TEXT DEFAULT ''")
+        self._ensure_column(conn, "upload_cache", "dead_letter", "INTEGER DEFAULT 0")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cache_retry "
+            "ON upload_cache(uploaded, dead_letter, next_retry_at)"
+        )
         conn.commit()
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str):
+        columns = {row['name'] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def insert_data(self, device_id: str, point_name: str, value: Any, unit: str = "",
                     timestamp: Optional[float] = None, success: bool = True,
@@ -199,9 +220,17 @@ class Database:
         conn = self._get_conn()
         cursor = conn.execute(
             """SELECT point_name, value, unit, timestamp, success, is_alarm
-               FROM data_records WHERE device_id = ?
-               GROUP BY point_name
-               ORDER BY timestamp DESC""",
+               FROM data_records AS current
+               WHERE device_id = ?
+                 AND id = (
+                   SELECT candidate.id
+                   FROM data_records AS candidate
+                   WHERE candidate.device_id = current.device_id
+                     AND candidate.point_name = current.point_name
+                   ORDER BY candidate.timestamp DESC, candidate.id DESC
+                   LIMIT 1
+                 )
+               ORDER BY timestamp DESC, point_name""",
             (device_id,)
         )
         result = {}
@@ -297,8 +326,40 @@ class Database:
         with self._lock:
             conn.execute("DELETE FROM data_records WHERE timestamp < ?", (before_timestamp,))
             conn.execute("DELETE FROM alarm_records WHERE timestamp < ?", (before_timestamp,))
+            conn.execute("DELETE FROM device_status_log WHERE timestamp < ?", (before_timestamp,))
             conn.commit()
         log_manager.info("数据库", f"已清理 {before_timestamp} 之前的旧数据")
+
+    def start_maintenance(self, retention_days: int, interval_hours: float = 24.0):
+        if retention_days <= 0:
+            return
+        if self._maintenance_thread and self._maintenance_thread.is_alive():
+            return
+        self._maintenance_stop.clear()
+        self._maintenance_thread = threading.Thread(
+            target=self._maintenance_loop,
+            args=(retention_days, interval_hours),
+            daemon=True,
+            name="DatabaseMaintenance",
+        )
+        self._maintenance_thread.start()
+
+    def stop_maintenance(self, timeout: float = 5.0):
+        self._maintenance_stop.set()
+        thread = self._maintenance_thread
+        self._maintenance_thread = None
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=timeout)
+
+    def _maintenance_loop(self, retention_days: int, interval_hours: float):
+        interval_seconds = max(60.0, interval_hours * 3600.0)
+        while not self._maintenance_stop.is_set():
+            try:
+                cutoff = time.time() - retention_days * 86400
+                self.delete_old_data(cutoff)
+            except Exception as exc:
+                log_manager.error("数据库", f"定期清理失败: {exc}")
+            self._maintenance_stop.wait(interval_seconds)
 
     def export_csv(self, filepath: str, device_id: Optional[str] = None,
                    start_time: Optional[float] = None, end_time: Optional[float] = None):
@@ -311,6 +372,7 @@ class Database:
         log_manager.info("数据库", f"已导出 {len(records)} 条记录到 {filepath}")
 
     def close(self):
+        self.stop_maintenance()
         if hasattr(self._local, 'conn') and self._local.conn:
             self._local.conn.close()
             self._local.conn = None
