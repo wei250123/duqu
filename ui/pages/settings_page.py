@@ -233,6 +233,7 @@ class SettingsPage(QWidget):
             data_encryptor.disable()
 
         config_manager.save_app_config()
+        db.stop_maintenance()
         db.start_maintenance(cfg.data_retention_days)
         self.font_size_changed.emit(cfg.font_size)
         QMessageBox.information(self, "成功", "设置已保存")
