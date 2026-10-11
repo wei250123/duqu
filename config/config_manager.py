@@ -264,6 +264,18 @@ class LogConfig:
 
 
 @dataclass
+class ApiConfig:
+    """Local management API settings.
+
+    The API is local-only by default.  A bearer token is supplied through
+    ``IIOT_GATEWAY_API_TOKEN`` so credentials never land in exported config.
+    """
+    enabled: bool = True
+    host: str = "127.0.0.1"
+    port: int = 8765
+
+
+@dataclass
 class DeviceConfig:
     device_id: str = ""
     name: str = ""
@@ -298,6 +310,7 @@ class AppConfig:
     max_upload_rate: int = 0
     data_retention_days: int = 90
     log: LogConfig = field(default_factory=LogConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
     backup_servers: List[BackupMqttConfig] = field(default_factory=list)
 
 

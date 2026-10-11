@@ -80,6 +80,23 @@ python main.py
 - `json/` 目录下的点位配置为示例数据，可按实际设备修改
 - 运行时数据（数据库、日志、设备配置）生成于 `data/` 目录，已加入 `.gitignore`
 
+## Management API
+
+The gateway exposes a small standard-library HTTP API for local monitoring. It
+starts with the desktop application and does not add a web framework
+dependency.
+
+- `GET /healthz` - process liveness and cache summary (public)
+- `GET /readyz` - readiness summary (public)
+- `GET /api/v1/status` - device and cache status
+- `GET /metrics` - Prometheus text metrics
+
+The default listener is `127.0.0.1:8765`. Configure `app_config.json` with the
+`api.enabled`, `api.host`, and `api.port` fields. When binding to a remote or
+wildcard address, set `IIOT_GATEWAY_API_TOKEN` and send
+`Authorization: Bearer <token>` for status and metrics endpoints. The token is
+read from the environment and is never written to exported configuration.
+
 ## License
 
 MIT

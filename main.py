@@ -16,6 +16,10 @@ from core.security.auth import auth_manager
 from device.device_manager import device_manager
 from core.storage.cache_manager import cache_manager
 from core.storage.database import db
+from core.api.server import GatewayApiServer
+
+
+api_server = None
 
 
 def setup_directories():
@@ -25,8 +29,12 @@ def setup_directories():
 
 
 def cleanup():
+    global api_server
     log_manager.info("系统", "正在执行清理操作...")
     try:
+        if api_server:
+            api_server.stop()
+            api_server = None
         device_manager.stop_all()
         cache_manager.stop_upload_worker()
         db.stop_maintenance()
@@ -57,6 +65,7 @@ def authenticate_user() -> bool:
 
 
 def main():
+    global api_server
     setup_directories()
     log_manager.info("系统", "=" * 60)
     log_manager.info("系统", "工业设备数据采集与MQTT上传网关 v1.0.0 启动中...")
@@ -83,6 +92,21 @@ def main():
             log_manager.error("系统", "启动密码验证失败")
             sys.exit(1)
         log_manager.info("系统", "启动密码验证成功")
+
+    api_config = app_config.api
+    if api_config.enabled:
+        try:
+            api_server = GatewayApiServer(
+                host=api_config.host,
+                port=api_config.port,
+                device_status_provider=device_manager.get_all_device_status,
+                cache_status_provider=cache_manager.get_all_cache_status,
+            )
+            api_server.start()
+            log_manager.info("系统", f"管理 API 已启动: {api_server.url}")
+        except (OSError, ValueError) as exc:
+            api_server = None
+            log_manager.warn("系统", f"管理 API 启动失败，桌面模式继续运行: {exc}")
     
     splash = QSplashScreen()
     splash.showMessage("正在初始化系统组件...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter)
