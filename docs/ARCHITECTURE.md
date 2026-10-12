@@ -27,7 +27,7 @@ copying lifecycle code from the Qt application.
 | --- | --- | --- |
 | `config/` | Dataclasses, loading, persistence, migration | filesystem, security encryption for secrets |
 | `core/runtime/` | Process lifecycle and service orchestration | API, storage, device manager |
-| `core/api/` | Read-only health, status, and Prometheus endpoints | runtime providers, standard library HTTP |
+| `core/api/` | Read-only health, status, Prometheus endpoints, and static Web monitor | runtime providers, standard library HTTP |
 | `device/` | Device configuration and runtime state | collector, MQTT, storage, auth |
 | `core/collector/` | Scheduling and collecting device points | communication and protocols |
 | `core/communication/` | Serial and Ethernet transports | protocol implementations |

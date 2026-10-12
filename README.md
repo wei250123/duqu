@@ -90,12 +90,15 @@ dependency.
 - `GET /readyz` - readiness summary (public)
 - `GET /api/v1/status` - device and cache status
 - `GET /metrics` - Prometheus text metrics
+- `GET /` - browser-based monitoring dashboard
 
 The default listener is `127.0.0.1:8765`. Configure `app_config.json` with the
 `api.enabled`, `api.host`, and `api.port` fields. When binding to a remote or
 wildcard address, set `IIOT_GATEWAY_API_TOKEN` and send
 `Authorization: Bearer <token>` for status and metrics endpoints. The token is
 read from the environment and is never written to exported configuration.
+Open `http://127.0.0.1:8765/` for the Web monitor. Remote status access uses
+the same Bearer Token as the API.
 
 ## Project structure
 
@@ -108,6 +111,10 @@ architecture prompt](docs/EMBEDDED_PORTING_ARCHITECT_PROMPT.md). It defines the
 target layering, RTOS task boundaries, resource budgets, security requirements,
 compatibility checks, and validation gates before any board-specific code is
 written.
+
+See [docs/UPGRADE_ROADMAP.md](docs/UPGRADE_ROADMAP.md) for the overall upgrade
+sequence, including the Web console, reliability testing, deployment work, and
+the embedded migration deferred until the current software platform is stable.
 
 ## License
 

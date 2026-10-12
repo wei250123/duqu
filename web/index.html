@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Duqu 工业设备采集网关监控台">
+  <title>Duqu Gateway Monitor</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">DUQU / EDGE OPERATIONS</p>
+        <h1>工业网关监控台</h1>
+        <p class="subtitle">设备采集、MQTT 上传与离线缓存的运行状态</p>
+      </div>
+      <div class="toolbar">
+        <label class="token-field" for="api-token">
+          <span>远程 API Token</span>
+          <input id="api-token" type="password" autocomplete="off" placeholder="本机访问可留空">
+        </label>
+        <button id="refresh-button" class="button primary" type="button">立即刷新</button>
+      </div>
+    </header>
+
+    <section id="notice" class="notice" role="status" aria-live="polite"></section>
+
+    <section class="summary-grid" aria-label="网关概览">
+      <article class="metric-card accent-blue">
+        <span class="metric-label">服务状态</span>
+        <strong id="service-status" class="metric-value">读取中</strong>
+        <span id="service-detail" class="metric-detail">等待网关响应</span>
+      </article>
+      <article class="metric-card accent-green">
+        <span class="metric-label">设备数量</span>
+        <strong id="device-count" class="metric-value">—</strong>
+        <span class="metric-detail">已加载的设备配置</span>
+      </article>
+      <article class="metric-card accent-amber">
+        <span class="metric-label">待补传</span>
+        <strong id="pending-count" class="metric-value">—</strong>
+        <span class="metric-detail">离线缓存等待上传</span>
+      </article>
+      <article class="metric-card accent-red">
+        <span class="metric-label">死信记录</span>
+        <strong id="dead-letter-count" class="metric-value">—</strong>
+        <span class="metric-detail">需要人工处理的失败消息</span>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel wide-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">DEVICE FLEET</p>
+            <h2>设备状态</h2>
+          </div>
+          <span id="last-updated" class="muted">尚未更新</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>设备</th>
+                <th>运行状态</th>
+                <th>MQTT</th>
+                <th>通信成功率</th>
+                <th>上传成功率</th>
+                <th>最近通信</th>
+              </tr>
+            </thead>
+            <tbody id="device-table">
+              <tr><td colspan="6" class="empty">正在读取设备状态…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel cache-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">OFFLINE QUEUE</p>
+            <h2>缓存队列</h2>
+          </div>
+        </div>
+        <div id="cache-list" class="cache-list">
+          <p class="empty">正在读取缓存状态…</p>
+        </div>
+      </article>
+    </section>
+
+    <footer class="footer">
+      <span>自动刷新间隔：5 秒</span>
+      <span>数据来自 Duqu Gateway API</span>
+    </footer>
+  </main>
+  <script src="/web/app.js" defer></script>
+</body>
+</html>

@@ -5,8 +5,20 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from urllib.parse import urlparse
+
+
+WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
+WEB_ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/web": ("index.html", "text/html; charset=utf-8"),
+    "/web/": ("index.html", "text/html; charset=utf-8"),
+    "/web/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/web/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/web/styles.css": ("styles.css", "text/css; charset=utf-8"),
+}
 
 
 class GatewayApiServer:
@@ -92,6 +104,9 @@ class GatewayApiServer:
 
             def do_GET(self):  # noqa: N802 - stdlib handler API
                 path = urlparse(self.path).path.rstrip("/") or "/"
+                if path in WEB_ASSETS:
+                    self._write_asset(*WEB_ASSETS[path])
+                    return
                 if path in ("/healthz", "/readyz"):
                     payload = gateway.health_payload(ready=path == "/readyz")
                     self._write_json(payload, HTTPStatus.OK)
@@ -113,6 +128,22 @@ class GatewayApiServer:
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
+                self._write_security_headers()
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _write_asset(self, filename: str, content_type: str):
+                path = WEB_ROOT / filename
+                try:
+                    body = path.read_bytes()
+                except OSError:
+                    self._write_json({"error": "web_asset_not_found"}, HTTPStatus.NOT_FOUND)
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-cache")
+                self._write_security_headers()
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -122,8 +153,19 @@ class GatewayApiServer:
                 self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Cache-Control", "no-store")
+                self._write_security_headers()
                 self.end_headers()
                 self.wfile.write(body)
+
+            def _write_security_headers(self):
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header(
+                    "Content-Security-Policy",
+                    "default-src 'self'; connect-src 'self'; style-src 'self'; "
+                    "script-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+                )
 
         return RequestHandler
 

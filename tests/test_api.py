@@ -49,6 +49,21 @@ class GatewayApiTests(unittest.TestCase):
         self.assertIn("duqu_gateway_cache_pending 2", metrics)
         self.assertIn('duqu_gateway_devices_by_status{status="collecting"} 1', metrics)
 
+    def test_dashboard_assets_are_served_with_security_headers(self):
+        with self._get("/") as response:
+            html = response.read().decode("utf-8")
+            self.assertIn("text/html", response.headers["Content-Type"])
+            self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+            self.assertIn("default-src 'self'", response.headers["Content-Security-Policy"])
+        self.assertIn("/web/app.js", html)
+
+        with self._get("/web/app.js") as response:
+            script = response.read().decode("utf-8")
+            self.assertIn("/api/v1/status", script)
+
+        with self._get("/web/styles.css") as response:
+            self.assertIn("text/css", response.headers["Content-Type"])
+
     def test_remote_binding_requires_token(self):
         with self.assertRaises(ValueError):
             GatewayApiServer(host="0.0.0.0", port=0).start()
