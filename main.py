@@ -1,6 +1,5 @@
 import sys
 import os
-import threading
 import atexit
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -13,13 +12,10 @@ from config.config_manager import config_manager
 from utils.logger import log_manager
 from utils.watchdog import watchdog
 from core.security.auth import auth_manager
-from device.device_manager import device_manager
-from core.storage.cache_manager import cache_manager
-from core.storage.database import db
-from core.api.server import GatewayApiServer
+from core.runtime.gateway_runtime import GatewayRuntime
 
 
-api_server = None
+runtime = None
 
 
 def setup_directories():
@@ -29,15 +25,12 @@ def setup_directories():
 
 
 def cleanup():
-    global api_server
+    global runtime
     log_manager.info("系统", "正在执行清理操作...")
     try:
-        if api_server:
-            api_server.stop()
-            api_server = None
-        device_manager.stop_all()
-        cache_manager.stop_upload_worker()
-        db.stop_maintenance()
+        if runtime:
+            runtime.stop()
+            runtime = None
         widget_instance = getattr(cleanup, '_widget_instance', None)
         if widget_instance:
             import matplotlib.pyplot as plt
@@ -65,7 +58,7 @@ def authenticate_user() -> bool:
 
 
 def main():
-    global api_server
+    global runtime
     setup_directories()
     log_manager.info("系统", "=" * 60)
     log_manager.info("系统", "工业设备数据采集与MQTT上传网关 v1.0.0 启动中...")
@@ -78,7 +71,6 @@ def main():
 
     watchdog.set_restart_callback(lambda: cleanup())
     app_config = config_manager.app_config
-    db.start_maintenance(app_config.data_retention_days)
     if not authenticate_user():
         log_manager.error("安全", "用户登录失败或取消")
         sys.exit(1)
@@ -93,20 +85,12 @@ def main():
             sys.exit(1)
         log_manager.info("系统", "启动密码验证成功")
 
-    api_config = app_config.api
-    if api_config.enabled:
-        try:
-            api_server = GatewayApiServer(
-                host=api_config.host,
-                port=api_config.port,
-                device_status_provider=device_manager.get_all_device_status,
-                cache_status_provider=cache_manager.get_all_cache_status,
-            )
-            api_server.start()
-            log_manager.info("系统", f"管理 API 已启动: {api_server.url}")
-        except (OSError, ValueError) as exc:
-            api_server = None
-            log_manager.warn("系统", f"管理 API 启动失败，桌面模式继续运行: {exc}")
+    runtime = GatewayRuntime(app_config)
+    try:
+        runtime.start()
+    except Exception as exc:
+        log_manager.fatal("系统", f"后台运行时启动失败: {exc}")
+        sys.exit(1)
     
     splash = QSplashScreen()
     splash.showMessage("正在初始化系统组件...", Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter)
@@ -120,9 +104,7 @@ def main():
 
     watchdog.enable(check_interval=5.0, heartbeat_timeout=30.0)
 
-    if app_config.auto_start_collect:
-        device_manager.start_all()
-        log_manager.info("系统", "自动启动设备采集")
+    runtime.start_collection()
 
     log_manager.info("系统", "程序启动完成，等待操作...")
 

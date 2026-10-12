@@ -2,6 +2,7 @@ import unittest
 
 from config.config_manager import (
     AppConfig,
+    ApiConfig,
     BackupMqttConfig,
     CollectPoint,
     DeviceConfig,
@@ -17,6 +18,7 @@ class ConfigDeserializationTests(unittest.TestCase):
         self.assertEqual(app_config.language, "zh_CN")
         self.assertEqual(app_config.log.level, "INFO")
         self.assertEqual(app_config.backup_servers, [])
+        self.assertEqual(app_config.api, ApiConfig())
         self.assertEqual(device_config.serial.port, "")
         self.assertEqual(device_config.collect.points, [])
 

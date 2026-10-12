@@ -97,6 +97,12 @@ wildcard address, set `IIOT_GATEWAY_API_TOKEN` and send
 `Authorization: Bearer <token>` for status and metrics endpoints. The token is
 read from the environment and is never written to exported configuration.
 
+## Project structure
+
+The desktop entry point delegates background service ownership to
+`core/runtime/GatewayRuntime`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+for module boundaries, dependency rules, and extension guidance.
+
 ## License
 
 MIT
