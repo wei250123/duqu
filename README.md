@@ -103,6 +103,12 @@ The desktop entry point delegates background service ownership to
 `core/runtime/GatewayRuntime`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 for module boundaries, dependency rules, and extension guidance.
 
+For the embedded board migration, use the reusable [embedded porting
+architecture prompt](docs/EMBEDDED_PORTING_ARCHITECT_PROMPT.md). It defines the
+target layering, RTOS task boundaries, resource budgets, security requirements,
+compatibility checks, and validation gates before any board-specific code is
+written.
+
 ## License
 
 MIT
